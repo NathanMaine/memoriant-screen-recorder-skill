@@ -96,16 +96,23 @@ setup_check() {
 
     # Screen Recording permission (macOS)
     if [[ "$os" == "macos" ]]; then
-        local test_img="$RECORD_DIR/.screen-test.png"
-        if screencapture -x "$test_img" 2>/dev/null && [[ -s "$test_img" ]]; then
-            echo "  ✓ Screen Recording permission granted"
+        # Test screen recording permission using ffmpeg (screencapture -x has sandbox issues)
+        if command -v ffmpeg &>/dev/null; then
+            local test_vid="$RECORD_DIR/.screen-test.mov"
+            local screen_dev
+            screen_dev=$(get_screen_device)
+            if ffmpeg -y -f avfoundation -framerate 1 -i "${screen_dev}:none" -t 0.5 -c:v libx264 -preset ultrafast "$test_vid" 2>/dev/null && [[ -s "$test_vid" ]]; then
+                echo "  ✓ Screen Recording permission granted"
+            else
+                echo "  ✗ Screen Recording permission NOT granted"
+                echo "      Fix: System Settings > Privacy & Security > Screen Recording"
+                echo "           Add your terminal app (Terminal, iTerm2, VS Code, Cursor, etc.)"
+                all_ok=false
+            fi
+            rm -f "$test_vid"
         else
-            echo "  ✗ Screen Recording permission NOT granted"
-            echo "      Fix: System Settings > Privacy & Security > Screen Recording"
-            echo "           Add your terminal app (Terminal, iTerm2, Warp, etc.)"
-            all_ok=false
+            echo "  ? Screen Recording permission — install ffmpeg to test"
         fi
-        rm -f "$test_img"
 
         # Accessibility permission (System Events query)
         local acc_test
