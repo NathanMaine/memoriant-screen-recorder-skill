@@ -176,10 +176,10 @@ show_window_table() {
         end tell
     ' 2>/dev/null)
 
-    # Print table header
-    printf "\n"
-    printf "  | %-2s | %-15s | %-35s | %-10s |\n" "#" "App" "Window" "Size"
-    printf "  |-%s-|-%s-|-%s-|-%s-|\n" "----" "---------------" "-----------------------------------" "----------"
+    # Print table header (to stderr so stdout only has the count)
+    printf "\n" >&2
+    printf "  | %-2s | %-15s | %-35s | %-10s |\n" "#" "App" "Window" "Size" >&2
+    printf "  |-%s-|-%s-|-%s-|-%s-|\n" "----" "---------------" "-----------------------------------" "----------" >&2
 
     local i=1
     WIN_APPS=()
@@ -199,7 +199,7 @@ show_window_table() {
         if [[ ${#display_win} -gt 35 ]]; then display_win="${display_win:0:32}..."; fi
 
         printf "  | %2d | %-15s | %-35s | %-5sx%-4s |\n" \
-            "$i" "$display_app" "$display_win" "$ww" "$wh"
+            "$i" "$display_app" "$display_win" "$ww" "$wh" >&2
 
         WIN_APPS[$i]="$app_name"
         WIN_POSITIONS[$i]="${wx},${wy}"
@@ -207,8 +207,8 @@ show_window_table() {
         i=$((i + 1))
     done <<< "$window_data"
 
-    printf "\n"
-    echo $((i - 1))   # return count on stdout
+    printf "\n" >&2
+    echo $((i - 1))   # return ONLY the count on stdout
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
