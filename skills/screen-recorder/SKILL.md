@@ -89,41 +89,95 @@ commands before proceeding:
 
 ### /screen-record start
 
-Starts a background recording. Saves the process PID to
-`~/.memoriant/recordings/.recording.pid` for later stop. The output filename
-includes a timestamp: `recording-YYYYMMDD-HHMMSS`.
+Starts a recording session. **Before recording, always ask the user which capture mode they want:**
 
-**Steps:**
+**Step 1 — Ask capture mode:**
 
-1. Detect OS with `uname -s`
-2. Run tool detection
-3. Launch appropriate recorder in background (`&`)
-4. Write PID with `echo $! > "$PID_FILE"`
-5. Write output path stub with `echo "$filename" > "$LAST_FILE"`
-6. Display confirmation with output path
+Present these options to the user:
 
-**macOS — screencapture:**
+```
+How would you like to record?
+
+  1. Full screen — captures your entire display
+  2. Select region — you'll drag to select an area (great for just the terminal)
+  3. Specific window — click on the window you want to capture
+  4. Terminal only — automatically finds and records just the terminal window
+
+Which mode? (1/2/3/4, default: 2)
+```
+
+**Recommend option 2 (select region) for demos** — it lets the user frame exactly what they want without desktop clutter.
+
+**Step 2 — Start recording based on mode:**
+
+Saves the process PID to `~/.memoriant/recordings/.recording.pid` for later stop.
+The output filename includes a timestamp: `recording-YYYYMMDD-HHMMSS`.
+
+**macOS — screencapture modes:**
 
 ```bash
 FILENAME="$RECORD_DIR/recording-$(date +%Y%m%d-%H%M%S)"
+
+# Mode 1: Full screen
 screencapture -v "$FILENAME.mov" &
+
+# Mode 2: Interactive region selection (user drags a rectangle)
+screencapture -v -i "$FILENAME.mov" &
+
+# Mode 3: Click a specific window
+screencapture -v -i -w "$FILENAME.mov" &
+
+# Mode 4: Terminal window (auto-detect by finding frontmost Terminal/iTerm2 window ID)
+WINDOW_ID=$(osascript -e 'tell application "System Events" to get id of first window of (first process whose frontmost is true)')
+screencapture -v -l "$WINDOW_ID" "$FILENAME.mov" &
+```
+
+After launching, write PID and confirm:
+```bash
 echo $! > "$PID_FILE"
 echo "$FILENAME" > "$LAST_FILE"
-echo "Recording started: $FILENAME.mov"
+echo "Recording started ($MODE): $FILENAME.mov"
+echo "Run /screen-record stop when finished."
 ```
 
 **macOS — ffmpeg/avfoundation:**
 
 ```bash
-# List devices first if unsure: ffmpeg -f avfoundation -list_devices true -i ""
+# Full screen
 ffmpeg -f avfoundation -i "1:0" -r 30 "$FILENAME.mov" &
+
+# Region (crop after recording — ffmpeg can't do interactive selection)
+# Record full, then: ffmpeg -i full.mov -vf "crop=W:H:X:Y" cropped.mov
 ```
 
 **Linux — ffmpeg/x11grab:**
 
 ```bash
-# Detect resolution: xdpyinfo | grep dimensions
-ffmpeg -f x11grab -r 30 -s 1920x1080 -i :0.0 "$FILENAME.mp4" &
+# Full screen (auto-detect resolution)
+RES=$(xdpyinfo | grep dimensions | awk '{print $2}')
+ffmpeg -f x11grab -r 30 -s "$RES" -i :0.0 "$FILENAME.mp4" &
+
+# Region selection (use slop to pick area)
+if command -v slop &>/dev/null; then
+    echo "Click and drag to select recording area..."
+    GEOM=$(slop -f "%wx%h+%x,%y")
+    SIZE=$(echo "$GEOM" | cut -d'+' -f1)
+    OFFSET=$(echo "$GEOM" | cut -d'+' -f2)
+    ffmpeg -f x11grab -r 30 -s "$SIZE" -i ":0.0+$OFFSET" "$FILENAME.mp4" &
+else
+    echo "Install slop for region selection: sudo apt install slop"
+    echo "Falling back to full screen..."
+    ffmpeg -f x11grab -r 30 -s "$RES" -i :0.0 "$FILENAME.mp4" &
+fi
+
+# Specific window (use xdotool)
+if command -v xdotool &>/dev/null; then
+    echo "Click on the window you want to record..."
+    WID=$(xdotool selectwindow)
+    GEOM=$(xdotool getwindowgeometry --shell "$WID")
+    # Parse WIDTH, HEIGHT, X, Y from GEOM
+    ffmpeg -f x11grab -r 30 -s "${WIDTH}x${HEIGHT}" -i ":0.0+${X},${Y}" "$FILENAME.mp4" &
+fi
 ```
 
 **Linux — wf-recorder (Wayland):**

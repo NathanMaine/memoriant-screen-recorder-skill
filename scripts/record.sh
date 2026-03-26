@@ -39,14 +39,60 @@ start_recording() {
         exit 1
     fi
 
+    local mode="${1:-ask}"
     local filename
     filename="$RECORD_DIR/recording-$(date +%Y%m%d-%H%M%S)"
     local recorder
     recorder=$(detect_recorder)
 
+    # Ask user for capture mode if not specified
+    if [[ "$mode" == "ask" ]]; then
+        echo ""
+        echo "How would you like to record?"
+        echo ""
+        echo "  1) Full screen — captures entire display"
+        echo "  2) Select region — drag to select an area (recommended for demos)"
+        echo "  3) Click window — click on the window to capture"
+        echo "  4) Terminal only — auto-detect and capture the terminal window"
+        echo ""
+        read -r -p "Which mode? (1/2/3/4, default: 2): " mode_choice
+        case "${mode_choice:-2}" in
+            1) mode="fullscreen" ;;
+            2) mode="region" ;;
+            3) mode="window" ;;
+            4) mode="terminal" ;;
+            *) mode="region" ;;
+        esac
+    fi
+
+    echo "Starting $mode recording..."
+
     case "$recorder" in
         screencapture)
-            screencapture -v "$filename.mov" &
+            case "$mode" in
+                fullscreen)
+                    screencapture -v "$filename.mov" &
+                    ;;
+                region)
+                    echo "Drag to select the recording area..."
+                    screencapture -v -i "$filename.mov" &
+                    ;;
+                window)
+                    echo "Click on the window you want to record..."
+                    screencapture -v -i -w "$filename.mov" &
+                    ;;
+                terminal)
+                    # Get the frontmost window ID via AppleScript
+                    local wid
+                    wid=$(osascript -e 'tell application "System Events" to get id of first window of (first process whose frontmost is true)' 2>/dev/null || "")
+                    if [[ -n "$wid" ]]; then
+                        screencapture -v -l "$wid" "$filename.mov" &
+                    else
+                        echo "Could not detect terminal window. Falling back to region select..."
+                        screencapture -v -i "$filename.mov" &
+                    fi
+                    ;;
+            esac
             ;;
         ffmpeg-macos)
             ffmpeg -f avfoundation -i "1:0" -r 30 "$filename.mov" &
@@ -55,7 +101,38 @@ start_recording() {
             local display="${DISPLAY:-:0.0}"
             local resolution
             resolution=$(xdpyinfo 2>/dev/null | grep dimensions | awk '{print $2}' || echo "1920x1080")
-            ffmpeg -f x11grab -r 30 -s "$resolution" -i "$display" "$filename.mp4" &
+            case "$mode" in
+                region)
+                    if command -v slop &>/dev/null; then
+                        echo "Click and drag to select recording area..."
+                        local geom size offset
+                        geom=$(slop -f "%wx%h+%x,%y")
+                        size=$(echo "$geom" | cut -d'+' -f1)
+                        offset=$(echo "$geom" | cut -d'+' -f2)
+                        ffmpeg -f x11grab -r 30 -s "$size" -i "$display+$offset" "$filename.mp4" &
+                    else
+                        echo "Install slop for region selection: sudo apt install slop"
+                        echo "Falling back to full screen..."
+                        ffmpeg -f x11grab -r 30 -s "$resolution" -i "$display" "$filename.mp4" &
+                    fi
+                    ;;
+                window)
+                    if command -v xdotool &>/dev/null; then
+                        echo "Click on the window you want to record..."
+                        local wid wgeom wx wy ww wh
+                        wid=$(xdotool selectwindow)
+                        eval "$(xdotool getwindowgeometry --shell "$wid")"
+                        ffmpeg -f x11grab -r 30 -s "${WIDTH}x${HEIGHT}" -i "$display+${X},${Y}" "$filename.mp4" &
+                    else
+                        echo "Install xdotool for window selection: sudo apt install xdotool"
+                        echo "Falling back to full screen..."
+                        ffmpeg -f x11grab -r 30 -s "$resolution" -i "$display" "$filename.mp4" &
+                    fi
+                    ;;
+                *)
+                    ffmpeg -f x11grab -r 30 -s "$resolution" -i "$display" "$filename.mp4" &
+                    ;;
+            esac
             ;;
         wf-recorder)
             wf-recorder -f "$filename.mp4" &
@@ -75,6 +152,7 @@ start_recording() {
     echo "$pid" > "$PID_FILE"
     echo "$filename" > "$LAST_FILE"
     echo "[REC] Recording started: $filename"
+    echo "      Mode: $mode"
     echo "      Recorder: $recorder"
     echo "      Run 'record.sh stop' to finish."
 }
@@ -203,7 +281,7 @@ status_check() {
 }
 
 case "${1:-help}" in
-    start)    start_recording ;;
+    start)    start_recording "${2:-ask}" ;;
     stop)     stop_recording ;;
     gif)      convert_to_gif "${2:-15}" "${3:-800}" ;;
     annotate) annotate "${2:-Demo}" ;;
@@ -212,7 +290,7 @@ case "${1:-help}" in
         echo "Usage: record.sh <command> [args]"
         echo ""
         echo "Commands:"
-        echo "  start                  Start a screen recording"
+        echo "  start [mode]           Start recording (fullscreen/region/window/terminal, or ask)"
         echo "  stop                   Stop the active recording"
         echo "  gif [fps] [width]      Convert last recording to GIF (default: 15fps, 800px)"
         echo "  annotate <text>        Print a styled title card to the terminal"
