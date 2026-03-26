@@ -1,23 +1,6 @@
 ---
 name: screen-recorder
-description: >
-  Manage screen recordings from within Claude Code. Runs a guided six-step
-  interactive flow: preflight check, capture mode selection, window picker,
-  save location, record, format choice. Supports macOS (screencapture +
-  ffmpeg/avfoundation) and Linux (ffmpeg/x11grab, wf-recorder).
-compatibility: macOS, Linux
-metadata:
-  version: "2.0.0"
-  commands:
-    - /screen-record setup
-    - /screen-record start
-    - /screen-record start fullscreen
-    - /screen-record start pick
-    - /screen-record stop
-    - /screen-record gif
-    - /screen-record crop
-    - /screen-record annotate <text>
-    - /screen-record status
+description: Manage screen recordings from within Claude Code. Guided six-step flow with window picker, GIF conversion, and demo automation. macOS and Linux.
 ---
 
 # Screen Recorder Skill
