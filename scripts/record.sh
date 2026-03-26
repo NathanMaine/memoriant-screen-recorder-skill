@@ -69,33 +69,97 @@ start_recording() {
 
     case "$recorder" in
         screencapture)
+            # NOTE: macOS screencapture -v (video) does NOT support -i (interactive).
+            # "screencapture: video not valid with -i"
+            # For window/region capture, we use Method 2: ffmpeg with real-time crop.
             case "$mode" in
                 fullscreen)
+                    # Method 1 (simple): screencapture records the full screen
                     screencapture -v "$filename.mov" &
                     ;;
-                region)
-                    echo "Drag to select the recording area..."
-                    screencapture -v -i "$filename.mov" &
-                    ;;
-                window)
-                    echo "Click on the window you want to record..."
-                    screencapture -v -i -w "$filename.mov" &
-                    ;;
-                terminal)
-                    # Get the frontmost window ID via AppleScript
-                    local wid
-                    wid=$(osascript -e 'tell application "System Events" to get id of first window of (first process whose frontmost is true)' 2>/dev/null || "")
-                    if [[ -n "$wid" ]]; then
-                        screencapture -v -l "$wid" "$filename.mov" &
+                window|terminal)
+                    # Method 2: Detect window bounds via AppleScript, record with ffmpeg crop
+                    if ! command -v ffmpeg &>/dev/null; then
+                        echo "Window recording requires ffmpeg. Install: brew install ffmpeg"
+                        echo "Falling back to fullscreen..."
+                        screencapture -v "$filename.mov" &
                     else
-                        echo "Could not detect terminal window. Falling back to region select..."
-                        screencapture -v -i "$filename.mov" &
+                        local bounds x y w h screen_device
+                        bounds=$(osascript -e '
+                            tell application "System Events"
+                                set frontApp to first application process whose frontmost is true
+                                set frontWindow to first window of frontApp
+                                set {x, y} to position of frontWindow
+                                set {w, h} to size of frontWindow
+                                return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
+                            end tell
+                        ' 2>/dev/null | tr -d ' ')
+
+                        if [[ -z "$bounds" ]]; then
+                            echo "Could not detect window bounds. Falling back to fullscreen..."
+                            screencapture -v "$filename.mov" &
+                        else
+                            IFS=',' read -r x y w h <<< "$bounds"
+                            # Find the screen capture device number
+                            screen_device=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i "capture screen" | head -1 | grep -o '\[([0-9]*)\]' | tr -d '[]' || echo "5")
+                            # Ensure even dimensions (required by libx264)
+                            w=$(( (w / 2) * 2 ))
+                            h=$(( (h / 2) * 2 ))
+                            echo "Detected window: ${w}x${h} at position ${x},${y}"
+                            ffmpeg -y -f avfoundation -framerate 30 -i "${screen_device}:none" \
+                                -vf "crop=${w}:${h}:${x}:${y}" \
+                                -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                                "$filename.mov" &
+                        fi
+                    fi
+                    ;;
+                region)
+                    # Method 2 with user-specified coordinates, or Method 1 (fullscreen) + crop after
+                    if ! command -v ffmpeg &>/dev/null; then
+                        echo "Region recording requires ffmpeg. Install: brew install ffmpeg"
+                        echo "Falling back to fullscreen (you can crop later)..."
+                        screencapture -v "$filename.mov" &
+                    else
+                        echo ""
+                        echo "Region recording options:"
+                        echo "  a) Record the frontmost window (auto-detected)"
+                        echo "  b) Record fullscreen now, crop to a region after"
+                        echo ""
+                        read -r -p "Choose (a/b, default: a): " region_choice
+                        case "${region_choice:-a}" in
+                            b)
+                                echo "Recording fullscreen — use 'record.sh crop' after stopping to select region."
+                                screencapture -v "$filename.mov" &
+                                ;;
+                            *)
+                                # Same as window mode — detect frontmost window
+                                local bounds x y w h screen_device
+                                bounds=$(osascript -e '
+                                    tell application "System Events"
+                                        set frontApp to first application process whose frontmost is true
+                                        set frontWindow to first window of frontApp
+                                        set {x, y} to position of frontWindow
+                                        set {w, h} to size of frontWindow
+                                        return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
+                                    end tell
+                                ' 2>/dev/null | tr -d ' ')
+                                IFS=',' read -r x y w h <<< "$bounds"
+                                screen_device=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i "capture screen" | head -1 | grep -o '\[([0-9]*)\]' | tr -d '[]' || echo "5")
+                                w=$(( (w / 2) * 2 ))
+                                h=$(( (h / 2) * 2 ))
+                                echo "Detected window: ${w}x${h} at position ${x},${y}"
+                                ffmpeg -y -f avfoundation -framerate 30 -i "${screen_device}:none" \
+                                    -vf "crop=${w}:${h}:${x}:${y}" \
+                                    -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                                    "$filename.mov" &
+                                ;;
+                        esac
                     fi
                     ;;
             esac
             ;;
         ffmpeg-macos)
-            ffmpeg -f avfoundation -i "1:0" -r 30 "$filename.mov" &
+            ffmpeg -f avfoundation -framerate 30 -i "5:none" -c:v libx264 -preset ultrafast "$filename.mov" &
             ;;
         ffmpeg-linux)
             local display="${DISPLAY:-:0.0}"
@@ -280,9 +344,65 @@ status_check() {
     fi
 }
 
+crop_recording() {
+    if ! command -v ffmpeg &>/dev/null; then
+        echo "Error: ffmpeg is required for cropping."
+        exit 1
+    fi
+
+    local last
+    last=$(cat "$LAST_FILE" 2>/dev/null || echo "")
+    local infile=""
+    if [[ -n "$last" ]]; then
+        infile=$(ls "${last}".{mov,mp4,ogv} 2>/dev/null | head -1 || echo "")
+    fi
+
+    if [[ -z "$infile" || ! -f "$infile" ]]; then
+        echo "No recording found to crop."
+        exit 1
+    fi
+
+    # Detect frontmost window bounds
+    local bounds x y w h
+    bounds=$(osascript -e '
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            set frontWindow to first window of frontApp
+            set {x, y} to position of frontWindow
+            set {w, h} to size of frontWindow
+            return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
+        end tell
+    ' 2>/dev/null | tr -d ' ')
+
+    if [[ -z "$bounds" ]]; then
+        echo "Could not detect window. Specify manually: record.sh crop WxH+X+Y"
+        exit 1
+    fi
+
+    IFS=',' read -r x y w h <<< "$bounds"
+    w=$(( (w / 2) * 2 ))
+    h=$(( (h / 2) * 2 ))
+
+    local outfile="${last}-cropped.mov"
+    echo "Cropping to ${w}x${h} at ${x},${y}..."
+    ffmpeg -y -i "$infile" -vf "crop=${w}:${h}:${x}:${y}" "$outfile" 2>/dev/null
+
+    if [[ -f "$outfile" ]]; then
+        local size
+        size=$(du -h "$outfile" | cut -f1)
+        echo "Cropped: $outfile ($size)"
+        # Update last file to point at cropped version
+        echo "${last}-cropped" > "$LAST_FILE"
+    else
+        echo "Error: Crop failed."
+        exit 1
+    fi
+}
+
 case "${1:-help}" in
     start)    start_recording "${2:-ask}" ;;
     stop)     stop_recording ;;
+    crop)     crop_recording ;;
     gif)      convert_to_gif "${2:-15}" "${3:-800}" ;;
     annotate) annotate "${2:-Demo}" ;;
     status)   status_check ;;
@@ -290,11 +410,18 @@ case "${1:-help}" in
         echo "Usage: record.sh <command> [args]"
         echo ""
         echo "Commands:"
-        echo "  start [mode]           Start recording (fullscreen/region/window/terminal, or ask)"
+        echo "  start [mode]           Start recording (fullscreen/window/terminal/region)"
         echo "  stop                   Stop the active recording"
+        echo "  crop                   Crop last recording to the frontmost window"
         echo "  gif [fps] [width]      Convert last recording to GIF (default: 15fps, 800px)"
         echo "  annotate <text>        Print a styled title card to the terminal"
         echo "  status                 Show recording status"
+        echo ""
+        echo "Modes:"
+        echo "  fullscreen             Record entire display (screencapture)"
+        echo "  window                 Record frontmost window only (ffmpeg + AppleScript)"
+        echo "  terminal               Same as window — auto-detects terminal"
+        echo "  region                 Choose: frontmost window OR fullscreen + crop after"
         echo ""
         echo "Environment:"
         echo "  RECORD_DIR             Output directory (default: ~/.memoriant/recordings)"
