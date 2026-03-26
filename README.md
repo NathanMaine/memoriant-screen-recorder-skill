@@ -1,11 +1,11 @@
 # memoriant-screen-recorder
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![Marketplace](https://img.shields.io/badge/marketplace-Memoriant-purple)
 
-Screen recording for Claude Code. Record demos, tutorials, and bug reproductions directly from your AI coding session. Export as MP4 or optimized GIF. Claude guides you through the entire process conversationally.
+Screen recording for Claude Code. Record demos, tutorials, and bug reproductions directly from your AI coding session. Export as video, GIF, or both. Claude guides you through a six-step interactive flow — no commands to memorize.
 
 Part of the [Memoriant Plugin Marketplace](https://github.com/NathanMaine/memoriant-marketplace).
 
@@ -21,172 +21,412 @@ Part of the [Memoriant Plugin Marketplace](https://github.com/NathanMaine/memori
 
 ## How It Actually Works
 
-This is a Claude Code **skill** — a set of detailed instructions (in `SKILL.md`) that Claude reads and follows. There's no background daemon, no server, no runtime. Here's the chain:
+This is a Claude Code **skill** — a set of detailed instructions (in `skills/screen-recorder/SKILL.md`) that Claude reads and follows. There is no background daemon, no server, no runtime.
 
-### 1. You install the plugin
+**The chain:**
 
-Claude Code downloads the repo to `~/.claude/plugins/` and reads the `plugin.json` manifest, which points to the skills and agents inside.
-
-### 2. You ask Claude to record
-
-You don't need to memorize commands. Just talk naturally:
-
-```
-You: record my screen, just the terminal window
-```
-
-### 3. Claude reads the SKILL.md
-
-The SKILL.md is Claude's instruction manual. It contains everything Claude needs to know: which recording tools exist on your OS, how to use them, what options are available, and how to guide you through choices. Claude loads this into its context and now "knows" screen recording.
-
-### 4. Claude runs real system commands
-
-Claude uses your Mac's built-in `screencapture` (or `ffmpeg` on Linux) to actually record the screen. These are real system processes — not simulated. Claude runs them via its Bash tool:
-
-```bash
-screencapture -v -l <window_id> ~/recording.mov &
-```
-
-### 5. Claude manages the session
-
-Claude saves the process ID so it can stop the recording later. When you say "stop," it sends a signal to gracefully end the recording and tells you where the file is.
+1. You install the plugin. Claude Code reads the `plugin.json` manifest, which points to the SKILL.md.
+2. You ask Claude to record — in plain English, no slash commands required.
+3. Claude reads the SKILL.md. It is Claude's instruction manual: which recording tools exist, how to use them, how to guide you through choices.
+4. Claude runs real system commands via its Bash tool. These are actual system processes — `screencapture` on macOS, `ffmpeg` on Linux.
+5. Claude manages the session: saves the process ID so it can stop the recording later, then walks you through format selection and saving.
 
 **The key insight:** The SKILL.md is the program. Claude's LLM capabilities are the runtime. Your system's recording tools are the execution engine.
 
 ---
 
-## What It Feels Like to Use
+## The Interactive Flow
 
-### Simple recording
+When you say "start a screen recording," Claude runs through all six steps:
 
-```
-You: start a screen recording
+```text
+Step 1: Checking dependencies...
+  ✓ macOS detected
+  ✓ screencapture available
+  ✓ ffmpeg 7.1 installed
+  ✓ Screen Recording permission granted
+  ✓ Accessibility permission granted
 
-Claude: How would you like to record?
+Step 2: What would you like to record?
+  1) Full screen
+  2) Pick a window (recommended)
 
-  1) Full screen — captures your entire display
-  2) Select region — drag to select an area (recommended for demos)
-  3) Click window — click on the window to capture
-  4) Terminal only — auto-capture just the terminal window
+  Which mode? (1/2, default: 2): 2
 
-  I'd recommend option 2 for demos — you can frame exactly
-  what you want without desktop clutter.
+Step 3: Open windows:
+  | #  | App             | Window                              | Size       |
+  |----|-----------------|-------------------------------------|------------|
+  |  1 | Terminal        | zsh                                 | 597x385    |
+  |  2 | Google Chrome   | New Tab                             | 1649x1866  |
+  |  3 | Code            | patent submit skill                 | 1581x1431  |
+  |  4 | Finder          | Downloads                           | 920x600    |
 
-You: 2
+  Which window? (1-4): 3
 
-Claude: Drag to select the recording area...
-  [macOS crosshair appears, you drag a rectangle]
+Step 4: Where should I save the output?
+  Default: ~/Desktop
+  Path (or press Enter for default):
 
-  Recording started (region): ~/.memoriant/recordings/recording-20260326-143000.mov
-  Run /screen-record stop when you're finished.
+Step 5: Recording... (run 'record.sh stop' when done)
 
-  ... you do your demo ...
+  [REC] PID: 48291
+  [REC] Output: ~/.memoriant/recordings/recording-20260326-114228.*
 
-You: stop recording
+  Run 'record.sh stop' to finish.
 
-Claude: Recording saved: recording-20260326-143000.mov (12.4MB)
-  Duration: ~45 seconds
+[... you do your demo ...]
 
-  Want me to convert it to a GIF for your README?
+  Recording captured: ~/.memoriant/recordings/recording-20260326-114228.mov (12.4MB)
 
-You: yes, make it 800px wide
+Step 6: What format do you want?
+  1) Video only (.mov)
+  2) GIF only (.gif)
+  3) Both video and GIF
 
-Claude: Converting to GIF (fps=15, width=800)...
-  GIF saved: recording-20260326-143000.gif (3.2MB)
-```
+  Format? (1/2/3, default: 3): 3
 
-### Direct and specific
+  Converting to GIF...
 
-If you already know what you want, Claude skips the questions:
-
-```
-You: record just the terminal window
-
-Claude: [detects terminal window ID via AppleScript]
-  Recording started (terminal): ~/.memoriant/recordings/recording-20260326-150000.mov
-
-You: stop and convert to gif
-
-Claude: Recording saved (8.7MB). Converting to GIF...
-  GIF saved: recording-20260326-150000.gif (2.1MB)
-```
-
-### Demo with annotations
-
-```
-You: I want to record a demo of the patent search plugin with a title card
-
-Claude: Starting recording... Drag to select the area.
-  [you select the terminal region]
-
-  [prints styled title card:]
-
-  ╔══════════════════════════════════════╗
-  ║   Patent Search Demo                 ║
-  ║   /patent-search "wireless power"    ║
-  ╚══════════════════════════════════════╝
-
-  Title card displayed. Now run your demo commands —
-  I'll keep recording until you say stop.
+Done! Files saved:
+  ~/Desktop/recording-20260326-114228.mov (12.4MB)
+  ~/Desktop/recording-20260326-114228.gif (3.4MB)
 ```
 
 ---
 
-## Capture Modes
+## Example Conversations
 
-| Mode | What It Does | Best For |
-|------|-------------|----------|
-| **Full screen** | Records entire display | Presentations, multi-window workflows |
-| **Select region** | You drag a rectangle to define the area | Clean demo recordings (recommended) |
-| **Click window** | Click on any window to capture just that window | Recording a specific app |
-| **Terminal only** | Auto-detects and captures the frontmost terminal | Quick terminal demos |
+### Natural language — Claude figures out the commands
 
-Claude recommends **select region** for demos — it gives you the cleanest output without accidentally showing notifications, browser tabs, or other desktop clutter.
+```text
+You: record my screen, just the VS Code window
 
-### How each mode works under the hood
+Claude: Starting step 1 — checking dependencies...
+  [runs preflight]
+  [shows window list, finds "Code — patent submit skill"]
+  Recording started. Say "stop" when done.
 
-**macOS:**
+You: stop and make it a gif
 
-| Mode | Command |
-|------|---------|
-| Full screen | `screencapture -v output.mov` |
-| Select region | `screencapture -v -i output.mov` (crosshair appears) |
-| Click window | `screencapture -v -i -w output.mov` (click target) |
-| Terminal only | `screencapture -v -l <window_id> output.mov` (auto-detected via AppleScript) |
+Claude: [stops recording]
+  [converts to GIF, copies to Desktop]
+  Done. ~/Desktop/recording-20260326-114355.gif (2.1MB)
+```
 
-**Linux (X11):**
+```text
+You: I need a demo GIF of the patent search plugin — terminal window only, save to ~/demos
 
-| Mode | Command | Extra tool needed |
-|------|---------|-------------------|
-| Full screen | `ffmpeg -f x11grab -s <resolution> -i :0.0 output.mp4` | None |
-| Select region | `slop` picks the area, then ffmpeg records it | `sudo apt install slop` |
-| Click window | `xdotool selectwindow` picks the window | `sudo apt install xdotool` |
+Claude: On it. Let me check permissions first...
+  [preflight passes]
+  [shows window list]
+  [you pick Terminal]
+  Saving to ~/demos. Recording started.
+
+You: okay stop it
+
+Claude: [stops]
+  Format? (1/2/3): 2
+  ~/demos/recording-20260326-120011.gif (1.8MB) — done.
+```
+
+### Annotations during a recording
+
+```text
+You: record my screen and add a title card
+
+Claude: Starting recording...
+  [preflight + window picker]
+  Recording live. What should the title card say?
+
+You: "Patent Search Demo — /patent-search 'wireless power'"
+
+Claude: [prints:]
+
+  ╔═══════════════════════════════════════════════════════════╗
+  ║  Patent Search Demo — /patent-search 'wireless power'    ║
+  ╚═══════════════════════════════════════════════════════════╝
+
+  Title card is visible in the recording. Run your demo now.
+```
 
 ---
 
-## Commands Reference
+## How Pick Mode Works (Step by Step)
+
+Pick mode records a single window without capturing the rest of your screen. Here is exactly what happens under the hood:
+
+1. **AppleScript queries System Events** for every visible window on screen — app name, window title, x/y position, width/height.
+
+2. **Claude formats the results** into a numbered table:
+
+   ```text
+   | #  | App             | Window                              | Size       |
+   |----|-----------------|-------------------------------------|------------|
+   |  1 | Terminal        | zsh                                 | 597x385    |
+   |  2 | Google Chrome   | New Tab                             | 1649x1866  |
+   ```
+
+3. **You pick a number.** Claude reads the corresponding position and size.
+
+4. **ffmpeg records the full screen** using the avfoundation device, then applies a real-time `crop` filter:
+
+   ```bash
+   ffmpeg -f avfoundation -framerate 30 -i "1:none" \
+       -vf "crop=1581:1431:100:50" \
+       recording.mov
+   ```
+
+   The crop rectangle is `width:height:x:y` — the exact bounds of the window you picked.
+
+5. The result is a video that only shows that window, with no desktop clutter, no menu bar, no other apps.
+
+---
+
+## Why `screencapture -v -i` Does Not Work (and How We Solved It)
+
+Apple's `screencapture` command has two flags that look like they should work together but do not:
+
+- `-v` — video mode (records a movie instead of a screenshot)
+- `-i` — interactive mode (lets you drag a rectangle or click a window)
+
+When you combine them: `screencapture -v -i output.mov`, you get this error:
+
+```text
+screencapture: video not valid with -i
+```
+
+Apple has never implemented interactive selection for video capture in `screencapture`. This is a hard limitation with no workaround inside `screencapture` itself.
+
+**How we solved it:** Two methods, depending on what you need.
+
+### Method 1 — Fullscreen then crop after
+
+Record the entire screen with `screencapture -v`, then use `record.sh crop` to trim it to the frontmost window after the fact. Simple, reliable, no extra tools needed.
+
+```bash
+# Record everything
+screencapture -v recording.mov
+
+# Crop to frontmost window (auto-detected via AppleScript)
+record.sh crop
+```
+
+Best for: quick recordings where you do not mind the extra crop step.
+
+### Method 2 — ffmpeg with real-time crop (used in pick mode)
+
+Use AppleScript to get the pixel coordinates of the window you want, then tell ffmpeg to record the full screen but apply a crop filter that isolates just that window — in real time, as it records.
+
+```bash
+# Get window bounds
+bounds=$(osascript -e '
+    tell application "System Events"
+        set frontApp to first application process whose frontmost is true
+        set frontWindow to first window of frontApp
+        set {x, y} to position of frontWindow
+        set {w, h} to size of frontWindow
+        return (x as text) & "," & (y as text) & "," & (w as text) & "," & (h as text)
+    end tell
+')
+
+# Record with real-time crop
+ffmpeg -f avfoundation -framerate 30 -i "1:none" \
+    -vf "crop=${w}:${h}:${x}:${y}" \
+    -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+    recording.mov
+```
+
+Best for: clean demos where you want a single window from the start, with no post-processing step.
+
+**Pick mode uses Method 2.** You select the window from the list, and ffmpeg crops to it in real time.
+
+---
+
+## Setup and Preflight Check
+
+### Run the preflight check before your first recording
+
+```bash
+record.sh setup
+```
+
+Output:
+
+```text
+Preflight check
+───────────────────────────────────────────────────────────────────
+  ✓ macOS detected
+  ✓ screencapture available
+  ✓ ffmpeg 7.1 installed
+  ✓ Screen Recording permission granted
+  ✓ Accessibility permission granted
+
+  Available screen capture devices:
+    [AVFoundation] [0] Capture screen 0
+    [AVFoundation] [1] Capture screen 1
+
+───────────────────────────────────────────────────────────────────
+  All checks passed. Ready to record.
+```
+
+If anything fails, the setup command prints the exact fix.
+
+### macOS permissions — step by step
+
+**Screen Recording** (required to capture video):
+
+1. Open System Settings
+2. Go to Privacy & Security > Screen Recording
+3. Find your terminal app (Terminal, iTerm2, Warp, etc.) in the list
+4. Toggle it on
+5. Restart the terminal app
+
+**Accessibility** (required for window picker):
+
+1. Open System Settings
+2. Go to Privacy & Security > Accessibility
+3. Find your terminal app
+4. Toggle it on
+
+You only need to do this once.
+
+### Install ffmpeg (required for GIF conversion and pick mode)
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu / Debian
+sudo apt install ffmpeg
+
+# Fedora
+sudo dnf install ffmpeg
+
+# Arch
+sudo pacman -S ffmpeg
+```
+
+---
+
+## All Commands Reference
 
 | Command | What It Does |
-|---------|-------------|
-| `/screen-record start` | Start recording (asks for capture mode) |
-| `/screen-record start fullscreen` | Start full screen recording (no prompt) |
-| `/screen-record start region` | Start with region selection |
-| `/screen-record start window` | Start with window click selection |
-| `/screen-record start terminal` | Start recording terminal only |
-| `/screen-record stop` | Stop recording, report file path and size |
-| `/screen-record gif` | Convert last recording to optimized GIF (15fps, 800px) |
-| `/screen-record gif 10 600` | Custom GIF settings (10fps, 600px wide) |
-| `/screen-record annotate "Title"` | Print a styled title card in the terminal |
-| `/screen-record demo <plugin>` | Record a scripted demo of a specific plugin |
-| `/screen-record status` | Check if a recording is active |
+| --- | --- |
+| `record.sh setup` | Preflight check — OS, tools, permissions, devices |
+| `record.sh start` | Full interactive flow (all 6 steps) |
+| `record.sh start fullscreen` | Skip prompts — fullscreen, Desktop, ask format after stop |
+| `record.sh start pick` | Skip step 2 and go straight to window list |
+| `record.sh stop` | Stop recording, choose format, copy to save location |
+| `record.sh gif` | Convert last recording to GIF (15fps, 800px) |
+| `record.sh gif 10 600` | Custom GIF settings (10fps, 600px wide) |
+| `record.sh crop` | Crop last recording to frontmost window bounds |
+| `record.sh annotate "Title"` | Print styled title card in terminal |
+| `record.sh status` | Check if a recording is active |
 
-But you don't need to memorize any of these. Just tell Claude what you want in plain English and it figures out the right command.
+You do not need to memorize these. Just tell Claude what you want in plain English.
+
+---
+
+## GIF Conversion
+
+GIF conversion uses ffmpeg's two-pass palette method — the highest quality approach available without third-party encoders:
+
+```bash
+ffmpeg -y -i input.mov \
+    -vf "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
+    output.gif
+```
+
+Single-pass GIF conversion produces muddy colors and banding. The palette method generates a custom 256-color palette from your specific video, then uses it when encoding — resulting in significantly sharper, more accurate GIFs at smaller file sizes.
+
+### Size vs quality guide
+
+| Use case | FPS | Width | Expected size |
+| --- | --- | --- | --- |
+| README preview / badge | 10 | 600 | 2–5 MB |
+| Tutorial clip (30s) | 15 | 800 | 5–12 MB |
+| Full demo (60s) | 15 | 1024 | 12–25 MB |
+
+For even smaller GIFs, post-process with gifsicle:
+
+```bash
+brew install gifsicle
+gifsicle -O3 --lossy=80 -o optimized.gif recording.gif
+```
+
+---
+
+## Where Files Go
+
+During recording, files go to the working directory:
+
+```text
+~/.memoriant/recordings/
+├── recording-20260326-114228.mov   # captured video
+├── recording-20260326-114228.gif   # converted GIF (if requested)
+├── .recording.pid                   # active recording PID (temporary)
+├── .last_recording                  # path stub for last recording
+└── .save_dir                        # chosen save location
+```
+
+After you choose a format in Step 6, the final files are copied to your chosen save location (default: `~/Desktop`).
+
+Override the working directory:
+
+```bash
+RECORD_DIR=/tmp/my-demos record.sh start
+```
+
+---
+
+## FAQ
+
+**Do I need to learn any commands?**
+No. Just tell Claude what you want: "record my screen," "stop recording," "make a gif." Claude handles the commands.
+
+**Can Claude record itself while working?**
+Yes. Claude runs the recording tool in the background and keeps working. You can ask Claude to run a demo while it records, and it captures everything.
+
+**What if I have multiple monitors?**
+Use pick mode — select the window you want from the list. It works regardless of which monitor the window is on.
+
+**Does it work in VS Code's terminal?**
+Yes. The recording captures the screen. Run it from VS Code's integrated terminal and pick mode will see VS Code's windows.
+
+**What if my window moves or resizes during recording?**
+The crop coordinates are captured at recording start. If the window moves, the recording will show whatever is in that rectangle — including parts of other windows. Keep the window stationary during recording.
+
+**Can I record, then edit, then export?**
+The skill records and converts. For editing, use ffmpeg directly:
+
+```bash
+# Trim to first 30 seconds
+ffmpeg -i recording.mov -t 30 -c copy trimmed.mov
+
+# Or ask Claude: "trim my last recording to the first 30 seconds"
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| Black / blank recording on macOS | Screen Recording permission not granted. System Settings > Privacy & Security > Screen Recording. Add your terminal. Restart it. |
+| "No screen recorder found" | Install ffmpeg: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) |
+| Window picker shows no windows | Accessibility permission not granted. System Settings > Privacy & Security > Accessibility. |
+| Window picker shows wrong size | macOS reports logical pixels. On a Retina display, the actual pixel count is 2x. ffmpeg handles this automatically via the avfoundation device. |
+| GIF is too large | Lower fps and width: `record.sh gif 10 600`. Post-process with gifsicle. |
+| File not found after stop | Process may still be finalizing. Wait 2–3 seconds and check `~/.memoriant/recordings/` |
+| "Permission denied on record.sh" | Run `chmod +x scripts/record.sh` |
+| x11grab: cannot open display | Set `export DISPLAY=:0` or start Xvfb for headless environments |
+| PID file stale after crash | `rm ~/.memoriant/recordings/.recording.pid` |
 
 ---
 
 ## Demo Automation
 
-Record demos of all your Memoriant plugins in one shot:
+Record all plugin demos at once:
 
 ```bash
 # Show all plugin demos (display only, no recording)
@@ -196,159 +436,32 @@ Record demos of all your Memoriant plugins in one shot:
 ./scripts/demo-all.sh ~/demos --record
 ```
 
-Covers all 14 Memoriant plugins with title cards and pauses between each.
-
----
-
-## GIF Optimization
-
-GIF conversion uses ffmpeg's two-pass palette method for maximum quality at minimum file size:
-
-```bash
-ffmpeg -vf "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
-```
-
-Default: 15fps, 800px wide. Customize via Claude:
-
-```
-You: convert to gif but make it smaller, 10fps and 600px wide
-
-Claude: Converting (fps=10, width=600)...
-  GIF saved: recording.gif (1.8MB)
-```
-
-For even smaller GIFs, install [gifsicle](https://www.lcdf.org/gifsicle/):
-
-```bash
-gifsicle -O3 --lossy=80 -o optimized.gif recording.gif
-```
-
----
-
-## Setup
-
-### macOS
-
-No install needed for recording — `screencapture` is built into every Mac.
-
-For GIF conversion: `brew install ffmpeg`
-
-**First-time permission:** The first time you record, macOS will show a "Screen Recording" permission dialog. Go to System Settings > Privacy & Security > Screen Recording and allow your terminal app (Terminal, iTerm2, Warp, etc.).
-
-### Linux
-
-```bash
-# Recording (required)
-sudo apt install ffmpeg
-
-# Region selection (optional, for "select region" mode)
-sudo apt install slop
-
-# Window selection (optional, for "click window" mode)
-sudo apt install xdotool
-```
-
----
-
-## Where Recordings Go
-
-All recordings are saved to `~/.memoriant/recordings/` by default.
-
-```
-~/.memoriant/recordings/
-├── recording-20260326-143000.mov     # Original video
-├── recording-20260326-143000.gif     # Converted GIF
-├── recording-20260326-150000.mov
-├── .recording.pid                     # Active recording PID (temporary)
-└── .last_recording                    # Path to most recent recording
-```
-
-Override with `RECORD_DIR`:
-
-```bash
-RECORD_DIR=/tmp/my-demos /screen-record start
-```
-
----
-
-## FAQ
-
-**Do I need to learn any commands?**
-No. Just tell Claude what you want: "record my screen," "stop recording," "make a gif." Claude handles the rest.
-
-**Can Claude record itself?**
-Yes — Claude runs the recording tool in the background and continues working. You can ask Claude to run a patent search while recording, and it captures everything.
-
-**What if I have multiple monitors?**
-Use "select region" mode — drag across the area you want. Or "click window" to pick a specific window on any monitor.
-
-**Does it work in VS Code's terminal?**
-Yes. The recording captures whatever is on screen. If Claude Code is running in VS Code's integrated terminal, "select region" or "terminal only" mode will capture it.
-
-**Can I record, then edit, then export?**
-The skill records and converts. For editing (trimming, cutting), use ffmpeg directly:
-```bash
-# Trim to first 30 seconds
-ffmpeg -i recording.mov -t 30 -c copy trimmed.mov
-```
-Or ask Claude: "trim my last recording to the first 30 seconds."
-
-**What format is the output?**
-- macOS: `.mov` (H.264, via screencapture)
-- Linux: `.mp4` (H.264, via ffmpeg)
-- GIF: `.gif` (palette-optimized, configurable fps/width)
-
----
-
-## The Helper Script
-
-The plugin includes `scripts/record.sh` — a standalone bash script that wraps all recording functionality. Claude can call this script, or run the commands directly. Both work.
-
-```bash
-# Direct usage (without Claude)
-./scripts/record.sh start           # Interactive mode selection
-./scripts/record.sh start region    # Skip prompt, go straight to region select
-./scripts/record.sh stop
-./scripts/record.sh gif 15 800
-./scripts/record.sh annotate "My Demo"
-./scripts/record.sh status
-```
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| **Black/blank recording on macOS** | Screen Recording permission not granted. System Settings > Privacy & Security > Screen Recording > add your terminal. |
-| **"No screen recorder found"** | Install ffmpeg: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) |
-| **x11grab: cannot open display** | Set `export DISPLAY=:0` or start Xvfb for headless |
-| **GIF is too large** | Lower fps and width: `/screen-record gif 10 600`. Or post-process with gifsicle. |
-| **File not found after stop** | Process may still be finalizing. Wait 2-3 seconds and check `~/.memoriant/recordings/` |
-| **"Terminal only" mode doesn't detect window** | AppleScript needs accessibility permissions. Falls back to region select. |
-| **Permission denied on record.sh** | Run `chmod +x scripts/record.sh` |
-
 ---
 
 ## Cross-Platform Support
 
-This plugin works with multiple AI coding assistants:
+This plugin works with multiple AI coding assistants.
 
-### Claude Code (Primary)
+### Claude Code (primary)
+
 ```bash
 /install NathanMaine/memoriant-screen-recorder-skill
 ```
 
 ### OpenAI Codex CLI
+
 ```bash
 git clone https://github.com/NathanMaine/memoriant-screen-recorder-skill.git ~/.codex/skills/screen-recorder
 codex --enable skills
 ```
 
 ### Gemini CLI
+
 ```bash
 gemini extensions install https://github.com/NathanMaine/memoriant-screen-recorder-skill.git --consent
 ```
+
+All three AI runtimes can read the SKILL.md and execute the bash commands. The interactive prompts and window picker work the same way regardless of which AI is driving.
 
 ---
 

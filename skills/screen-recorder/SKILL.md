@@ -1,642 +1,497 @@
 ---
 name: screen-recorder
 description: >
-  Manage screen recordings from within Claude Code. Start and stop recordings,
-  convert to GIF, add title card annotations, and automate demo capture for
-  plugin documentation. Supports macOS (screencapture, ffmpeg/avfoundation) and
-  Linux (ffmpeg/x11grab, wf-recorder, recordmydesktop).
-version: 1.0.0
-commands:
-  - /screen-record start
-  - /screen-record stop
-  - /screen-record gif
-  - /screen-record demo <plugin-name>
-  - /screen-record annotate <text>
-  - /screen-record status
-platforms:
-  - macOS
-  - Linux
+  Manage screen recordings from within Claude Code. Runs a guided six-step
+  interactive flow: preflight check, capture mode selection, window picker,
+  save location, record, format choice. Supports macOS (screencapture +
+  ffmpeg/avfoundation) and Linux (ffmpeg/x11grab, wf-recorder).
+compatibility: macOS, Linux
+metadata:
+  version: "2.0.0"
+  commands:
+    - /screen-record setup
+    - /screen-record start
+    - /screen-record start fullscreen
+    - /screen-record start pick
+    - /screen-record stop
+    - /screen-record gif
+    - /screen-record crop
+    - /screen-record annotate <text>
+    - /screen-record status
 ---
 
 # Screen Recorder Skill
 
 ## Overview
 
-This skill teaches Claude Code to manage screen recording sessions. Recordings
-are saved to `~/.memoriant/recordings/` by default. GIFs are placed alongside
-the source video. A PID file tracks the active recording process so stop/status
+This skill teaches Claude Code to manage screen recording sessions through a
+guided six-step interactive flow. Recordings are saved to a working directory
+(`~/.memoriant/recordings/` by default) and then copied to a user-chosen
+destination. A PID file tracks the active recording process so stop/status
 work reliably across commands.
 
----
-
-## Tool Detection
-
-Before recording, check the available toolchain. The preference order is:
-
-### macOS
-
-1. `screencapture` — built in, no install required, records to `.mov`
-2. `ffmpeg` with `-f avfoundation` — cross-platform, more control
-3. AppleScript + QuickTime (interactive fallback, not scriptable for auto-stop)
-
-Detection:
-
-```bash
-detect_recorder_macos() {
-    if command -v screencapture &>/dev/null; then
-        echo "screencapture"
-    elif command -v ffmpeg &>/dev/null; then
-        echo "ffmpeg-macos"
-    else
-        echo "none"
-    fi
-}
-```
-
-### Linux
-
-1. `ffmpeg -f x11grab` — available on virtually any X11 system with ffmpeg
-2. `wf-recorder` — Wayland native, install via package manager
-3. `recordmydesktop` — GTK-based fallback, wide distro support
-
-Detection:
-
-```bash
-detect_recorder_linux() {
-    if command -v ffmpeg &>/dev/null; then
-        echo "ffmpeg-linux"
-    elif command -v wf-recorder &>/dev/null; then
-        echo "wf-recorder"
-    elif command -v recordmydesktop &>/dev/null; then
-        echo "recordmydesktop"
-    else
-        echo "none"
-    fi
-}
-```
-
-If `detect_recorder` returns `none`, inform the user and suggest install
-commands before proceeding:
-
-- macOS: `brew install ffmpeg`
-- Ubuntu/Debian: `sudo apt install ffmpeg`
-- Fedora: `sudo dnf install ffmpeg`
-- Arch: `sudo pacman -S ffmpeg`
+The helper script at `scripts/record.sh` implements all commands. Claude
+should run it via Bash, or run equivalent commands directly.
 
 ---
 
-## Commands
+## The Six-Step Flow
 
-### /screen-record start
+When the user says anything like "record my screen", "start a recording",
+or "record the terminal window", run `record.sh start` (or equivalent).
 
-Starts a recording session. **Before recording, always ask the user which capture mode they want:**
-
-**Step 1 — Ask capture mode:**
-
-Present these options to the user:
+The flow always executes all six steps in order:
 
 ```
-How would you like to record?
-
-  1. Full screen — captures your entire display
-  2. Select region — you'll drag to select an area (great for just the terminal)
-  3. Specific window — click on the window you want to capture
-  4. Terminal only — automatically finds and records just the terminal window
-
-Which mode? (1/2/3/4, default: 2)
+Step 1 — Preflight check
+Step 2 — Choose capture mode (fullscreen or pick a window)
+Step 3 — Window picker (if pick mode)
+Step 4 — Choose save location
+Step 5 — Record
+Step 6 — (after stop) Choose output format, copy files
 ```
 
-**Recommend option 2 (select region) for demos** — it lets the user frame exactly what they want without desktop clutter.
+---
 
-**Step 2 — Start recording based on mode:**
+## Step 1 — Preflight Check
 
-Saves the process PID to `~/.memoriant/recordings/.recording.pid` for later stop.
-The output filename includes a timestamp: `recording-YYYYMMDD-HHMMSS`.
+Before recording, verify the environment. Run:
 
-**macOS — screencapture modes:**
+```bash
+./scripts/record.sh setup
+```
+
+Or perform the checks inline inside `start`. Either way, the user sees:
+
+```text
+Step 1: Checking dependencies...
+  ✓ macOS detected
+  ✓ screencapture available
+  ✓ ffmpeg 7.1 installed
+  ✓ Screen Recording permission granted
+  ✓ Accessibility permission granted
+```
+
+**Screen Recording permission test (macOS):**
+
+```bash
+screencapture -x /tmp/.memoriant-screen-test.png 2>/dev/null
+if [[ $? -eq 0 && -s /tmp/.memoriant-screen-test.png ]]; then
+    echo "  ✓ Screen Recording permission granted"
+else
+    echo "  ✗ Screen Recording permission NOT granted"
+    echo "      Fix: System Settings > Privacy & Security > Screen Recording"
+fi
+rm -f /tmp/.memoriant-screen-test.png
+```
+
+**Accessibility permission test (macOS):**
+
+```bash
+acc=$(osascript -e \
+    'tell application "System Events" to return name of first application process whose frontmost is true' \
+    2>/dev/null || echo "")
+if [[ -n "$acc" ]]; then
+    echo "  ✓ Accessibility permission granted"
+else
+    echo "  ✗ Accessibility permission NOT granted"
+    echo "      Fix: System Settings > Privacy & Security > Accessibility"
+fi
+```
+
+If any check fails, stop and tell the user exactly what to fix before
+proceeding. Do not start a recording that will produce a blank file.
+
+---
+
+## Step 2 — Choose Capture Mode
+
+After preflight passes, ask:
+
+```text
+Step 2: What would you like to record?
+
+  1) Full screen
+  2) Pick a window (recommended)
+
+  Which mode? (1/2, default: 2):
+```
+
+- If the user already said "fullscreen" or passed `start fullscreen`, skip
+  to Step 4.
+- If the user already said "pick" or "window" or named a specific app, skip
+  to Step 3.
+- Otherwise, present the prompt and wait for input.
+
+---
+
+## Step 3 — Window Picker (pick mode only)
+
+Query all visible windows via AppleScript and display a formatted table:
+
+```bash
+osascript -e '
+    tell application "System Events"
+        set output to ""
+        repeat with proc in (every application process whose visible is true)
+            try
+                repeat with win in (every window of proc)
+                    set winName to name of win
+                    set appName to name of proc
+                    set {x, y} to position of win
+                    set {w, h} to size of win
+                    set output to output & appName & "|" & winName & "|" \
+                        & (x as text) & "|" & (y as text) & "|" \
+                        & (w as text) & "|" & (h as text) & linefeed
+                end repeat
+            end try
+        end repeat
+        return output
+    end tell
+'
+```
+
+Format as a table:
+
+```text
+Step 3: Open windows:
+  | #  | App             | Window                              | Size       |
+  |----|-----------------|-------------------------------------|------------|
+  |  1 | Terminal        | zsh                                 | 597x385    |
+  |  2 | Google Chrome   | New Tab                             | 1649x1866  |
+  |  3 | Code            | patent submit skill                 | 1581x1431  |
+
+  Which window? (1-3):
+```
+
+Store the selected window's `x`, `y`, `w`, `h` for Step 5. Ensure `w` and
+`h` are even numbers (libx264 requirement):
+
+```bash
+w=$(( (w / 2) * 2 ))
+h=$(( (h / 2) * 2 ))
+```
+
+If no windows are found, or the user picks an invalid number, fall back to
+fullscreen and continue.
+
+---
+
+## Step 4 — Save Location
+
+Ask where to save the final output files:
+
+```text
+Step 4: Where should I save the output?
+  Default: ~/Desktop
+  Path (or press Enter for default):
+```
+
+- Default to `~/Desktop`.
+- Accept any valid directory path, expanding `~` to `$HOME`.
+- Create the directory if it does not exist (`mkdir -p`).
+- Store the path in `~/.memoriant/recordings/.save_dir` so `stop` can
+  read it later.
+
+---
+
+## Step 5 — Record
+
+Start the recording in the background. Save the PID and the output filename
+stub so `stop` can find them.
+
+**macOS — pick mode (window crop via ffmpeg):**
 
 ```bash
 FILENAME="$RECORD_DIR/recording-$(date +%Y%m%d-%H%M%S)"
 
-# Mode 1: Full screen
-screencapture -v "$FILENAME.mov" &
+# Find the screen capture device
+SCREEN_DEV=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 \
+    | grep -i "capture screen" | head -1 \
+    | sed 's/.*\[\([0-9]*\)\].*/\1/' || echo "5")
 
-# Mode 2: Interactive region selection (user drags a rectangle)
-screencapture -v -i "$FILENAME.mov" &
+ffmpeg -y -f avfoundation -framerate 30 -i "${SCREEN_DEV}:none" \
+    -vf "crop=${w}:${h}:${x}:${y}" \
+    -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+    "$FILENAME.mov" > /dev/null 2>&1 &
 
-# Mode 3: Click a specific window
-screencapture -v -i -w "$FILENAME.mov" &
-
-# Mode 4: Terminal window (auto-detect by finding frontmost Terminal/iTerm2 window ID)
-WINDOW_ID=$(osascript -e 'tell application "System Events" to get id of first window of (first process whose frontmost is true)')
-screencapture -v -l "$WINDOW_ID" "$FILENAME.mov" &
-```
-
-After launching, write PID and confirm:
-```bash
 echo $! > "$PID_FILE"
 echo "$FILENAME" > "$LAST_FILE"
-echo "Recording started ($MODE): $FILENAME.mov"
-echo "Run /screen-record stop when finished."
 ```
 
-**macOS — ffmpeg/avfoundation:**
+**macOS — fullscreen (screencapture):**
 
 ```bash
-# Full screen
-ffmpeg -f avfoundation -i "1:0" -r 30 "$FILENAME.mov" &
-
-# Region (crop after recording — ffmpeg can't do interactive selection)
-# Record full, then: ffmpeg -i full.mov -vf "crop=W:H:X:Y" cropped.mov
+screencapture -v "$FILENAME.mov" &
+echo $! > "$PID_FILE"
+echo "$FILENAME" > "$LAST_FILE"
 ```
 
-**Linux — ffmpeg/x11grab:**
+**Why `screencapture -v -i` does not work:** Apple's `screencapture` does
+not support combining `-v` (video) and `-i` (interactive). The error is
+`screencapture: video not valid with -i`. This is a hard macOS limitation.
+Pick mode solves it via ffmpeg's real-time crop filter instead.
+
+**Linux — ffmpeg x11grab:**
 
 ```bash
-# Full screen (auto-detect resolution)
-RES=$(xdpyinfo | grep dimensions | awk '{print $2}')
-ffmpeg -f x11grab -r 30 -s "$RES" -i :0.0 "$FILENAME.mp4" &
-
-# Region selection (use slop to pick area)
-if command -v slop &>/dev/null; then
-    echo "Click and drag to select recording area..."
-    GEOM=$(slop -f "%wx%h+%x,%y")
-    SIZE=$(echo "$GEOM" | cut -d'+' -f1)
-    OFFSET=$(echo "$GEOM" | cut -d'+' -f2)
-    ffmpeg -f x11grab -r 30 -s "$SIZE" -i ":0.0+$OFFSET" "$FILENAME.mp4" &
-else
-    echo "Install slop for region selection: sudo apt install slop"
-    echo "Falling back to full screen..."
-    ffmpeg -f x11grab -r 30 -s "$RES" -i :0.0 "$FILENAME.mp4" &
-fi
-
-# Specific window (use xdotool)
-if command -v xdotool &>/dev/null; then
-    echo "Click on the window you want to record..."
-    WID=$(xdotool selectwindow)
-    GEOM=$(xdotool getwindowgeometry --shell "$WID")
-    # Parse WIDTH, HEIGHT, X, Y from GEOM
-    ffmpeg -f x11grab -r 30 -s "${WIDTH}x${HEIGHT}" -i ":0.0+${X},${Y}" "$FILENAME.mp4" &
-fi
+DISPLAY="${DISPLAY:-:0.0}"
+RES=$(xdpyinfo 2>/dev/null | grep dimensions | awk '{print $2}' || echo "1920x1080")
+ffmpeg -f x11grab -r 30 -s "$RES" -i "$DISPLAY" "$FILENAME.mp4" > /dev/null 2>&1 &
+echo $! > "$PID_FILE"
+echo "$FILENAME" > "$LAST_FILE"
 ```
 
 **Linux — wf-recorder (Wayland):**
 
 ```bash
 wf-recorder -f "$FILENAME.mp4" &
+echo $! > "$PID_FILE"
+echo "$FILENAME" > "$LAST_FILE"
 ```
 
-**Linux — recordmydesktop:**
+After starting, confirm to the user:
 
-```bash
-recordmydesktop --no-sound --fps 30 -o "$FILENAME.ogv" &
-```
+```text
+Step 5: Recording...
 
-**Visual indicator** — print a blinking dot or status line while recording is
-active. This helps confirm the session is live during terminal usage:
+  [REC] PID: 48291
+  [REC] Output: ~/.memoriant/recordings/recording-20260326-114228.*
 
-```
-[REC] Recording to: ~/.memoriant/recordings/recording-20250326-143022.mov
-      Press Ctrl+C or run /screen-record stop to finish.
-```
-
----
-
-### /screen-record stop
-
-Stops the active recording by sending SIGINT to the PID, then cleans up the
-PID file and reports the output.
-
-```bash
-stop_recording() {
-    if [[ ! -f "$PID_FILE" ]]; then
-        echo "No active recording found."
-        exit 1
-    fi
-
-    local pid
-    pid=$(cat "$PID_FILE")
-
-    # SIGINT is preferred; ffmpeg/screencapture finalize on SIGINT
-    kill -INT "$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-
-    # Give the process a moment to write its final frames
-    sleep 1
-    rm -f "$PID_FILE"
-
-    local last
-    last=$(cat "$LAST_FILE" 2>/dev/null || echo "")
-    local outfile
-    outfile=$(ls "${last}".* 2>/dev/null | head -1)
-
-    if [[ -n "$outfile" ]]; then
-        local size
-        size=$(du -h "$outfile" | cut -f1)
-        echo "Recording saved: $outfile ($size)"
-        echo "Convert to GIF: /screen-record gif"
-    else
-        echo "Recording stopped. Output file not found — it may still be finalizing."
-    fi
-}
-```
-
-Note: `screencapture -v` finalizes cleanly on SIGINT. `ffmpeg` also respects
-SIGINT for a clean exit. `wf-recorder` uses SIGINT as well. Do not use SIGKILL
-unless the process is stuck, as it may leave a corrupt or missing file.
-
----
-
-### /screen-record gif
-
-Converts the last recording to a GIF using a two-pass ffmpeg palette approach.
-This produces significantly smaller and sharper GIFs than a single-pass
-conversion.
-
-**Two-pass palette method:**
-
-```bash
-convert_to_gif() {
-    local infile="$1"
-    local outfile="${infile%.*}.gif"
-    local fps="${2:-15}"
-    local width="${3:-800}"
-
-    echo "Generating palette..."
-    ffmpeg -y -i "$infile" \
-        -vf "fps=$fps,scale=$width:-1:flags=lanczos,palettegen" \
-        /tmp/palette.png 2>/dev/null
-
-    echo "Encoding GIF..."
-    ffmpeg -y -i "$infile" -i /tmp/palette.png \
-        -lavfi "fps=$fps,scale=$width:-1:flags=lanczos [x]; [x][1:v] paletteuse" \
-        "$outfile" 2>/dev/null
-
-    rm -f /tmp/palette.png
-    local size
-    size=$(du -h "$outfile" | cut -f1)
-    echo "GIF saved: $outfile ($size)"
-}
-```
-
-Or with the combined filter graph (equivalent, single ffmpeg call):
-
-```bash
-ffmpeg -y -i input.mov \
-    -vf "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
-    output.gif
-```
-
-**gifski alternative** (higher quality, requires install):
-
-```bash
-# Install: brew install gifski  OR  cargo install gifski
-# Extract frames first, then encode
-ffmpeg -i input.mov -r 15 /tmp/frames/frame%04d.png
-gifski --fps 15 --width 800 -o output.gif /tmp/frames/frame*.png
-```
-
-**GIF optimization tips:**
-
-| Setting | Recommendation | Notes |
-|---------|---------------|-------|
-| FPS | 15 | Smooth enough; lower = smaller file |
-| Width | 800px | Good for README embeds |
-| Lanczos | Always | Best downscale filter |
-| Palette | Two-pass | Critical for color accuracy |
-| Duration | 30-60s max | GIFs over 10MB are unwieldy |
-
----
-
-### /screen-record demo \<plugin-name\>
-
-Records a scripted demo of a named Memoriant plugin. The workflow:
-
-1. Print an opening title card annotation
-2. Start recording
-3. Pause briefly (let the annotation render in the recording)
-4. Print the demo commands and their descriptions
-5. Stop recording
-6. Convert to GIF
-7. Move GIF to `demos/<plugin-name>-demo.gif`
-
-```bash
-demo_plugin() {
-    local plugin="$1"
-    local output_dir="demos"
-    mkdir -p "$output_dir"
-
-    annotate "Demo: $plugin"
-    sleep 1
-
-    start_recording
-
-    echo ""
-    echo "Running demo for: $plugin"
-    echo "Output will be saved to: $output_dir/$plugin-demo.gif"
-    sleep 2
-
-    # Plugin-specific demo steps would go here
-    # Example for patent-search:
-    # annotate "/patent-search 'wireless power transfer'"
-    # sleep 1
-    # echo "(demo command output would appear here)"
-    # sleep 2
-
-    stop_recording
-    sleep 1
-    convert_to_gif "$(get_last_recording)" 15 800
-
-    local gif_src
-    gif_src=$(get_last_recording_gif)
-    mv "$gif_src" "$output_dir/$plugin-demo.gif"
-    echo "Demo GIF saved: $output_dir/$plugin-demo.gif"
-}
-```
-
-The `scripts/demo-all.sh` helper runs this across all 13 Memoriant plugins
-in sequence, suitable for a full marketplace showcase recording.
-
----
-
-### /screen-record annotate \<text\>
-
-Prints a styled ANSI title card to the terminal. Useful for labeling sections
-during a live recording so viewers can follow along.
-
-```bash
-annotate() {
-    local text="${1:-Demo}"
-    local len=${#text}
-    local pad=$((len + 4))
-
-    printf "\n\033[1;36m"
-    printf "╔"; printf '═%.0s' $(seq 1 $pad); printf "╗\n"
-    printf "║  %s  ║\n" "$text"
-    printf "╚"; printf '═%.0s' $(seq 1 $pad); printf "╝\n"
-    printf "\033[0m\n"
-}
-```
-
-Example output:
-
-```
-╔══════════════════════════════════════╗
-║   Patent Search Demo                 ║
-║   /patent-search "wireless power"    ║
-╚══════════════════════════════════════╝
-```
-
-Multiple lines can be combined into a multi-line card:
-
-```bash
-annotate_block() {
-    local lines=("$@")
-    local max_len=0
-    for line in "${lines[@]}"; do
-        [[ ${#line} -gt $max_len ]] && max_len=${#line}
-    done
-    local pad=$((max_len + 4))
-
-    printf "\n\033[1;36m"
-    printf "╔"; printf '═%.0s' $(seq 1 $pad); printf "╗\n"
-    for line in "${lines[@]}"; do
-        printf "║  %-*s  ║\n" "$max_len" "$line"
-    done
-    printf "╚"; printf '═%.0s' $(seq 1 $pad); printf "╝\n"
-    printf "\033[0m\n"
-}
+  Run 'record.sh stop' to finish.
 ```
 
 ---
 
-### /screen-record status
+## Step 6 — Stop, Choose Format, Copy Files
 
-Reports whether a recording is currently active.
+When the user says "stop", run `record.sh stop` (or equivalent):
+
+1. Send SIGINT to the recording PID. Use SIGINT not SIGKILL — ffmpeg,
+   screencapture, and wf-recorder all finalize cleanly on SIGINT.
+
+   ```bash
+   kill -INT "$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+   sleep 2   # allow final frames to flush
+   rm -f "$PID_FILE"
+   ```
+
+2. Find the output file and report its size.
+
+3. Ask the user which format they want:
+
+   ```text
+   Step 6: What format do you want?
+
+     1) Video only (.mov)
+     2) GIF only (.gif)
+     3) Both video and GIF
+
+     Format? (1/2/3, default: 3):
+   ```
+
+4. Convert to GIF if needed (two-pass palette method):
+
+   ```bash
+   ffmpeg -y -i "$infile" \
+       -vf "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
+       "$outfile.gif" 2>/dev/null
+   ```
+
+5. Copy the chosen files to the save directory from Step 4:
+
+   - Video only: copy `.mov` (or `.mp4`) to save dir.
+   - GIF only: convert, copy `.gif` to save dir, do not copy the video.
+   - Both: copy both files.
+
+6. Report final paths and sizes:
+
+   ```text
+   Done! Files saved:
+     ~/Desktop/recording-20260326-114228.mov (12.4MB)
+     ~/Desktop/recording-20260326-114228.gif (3.4MB)
+   ```
+
+---
+
+## /screen-record setup
+
+Run the standalone preflight check without starting a recording:
 
 ```bash
-status() {
-    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-        local pid
-        pid=$(cat "$PID_FILE")
-        local last
-        last=$(cat "$LAST_FILE" 2>/dev/null || echo "unknown")
-        echo "Recording in progress"
-        echo "  PID: $pid"
-        echo "  Output: $last.*"
-    else
-        echo "Not recording."
-        if [[ -f "$LAST_FILE" ]]; then
-            echo "  Last recording: $(cat "$LAST_FILE").*"
-        fi
-    fi
-}
+./scripts/record.sh setup
+```
+
+Reports OS, screencapture availability, ffmpeg version, Screen Recording
+permission, Accessibility permission, and available avfoundation devices.
+Prints exact fix instructions for anything that fails.
+
+---
+
+## /screen-record gif
+
+Convert the last recording to a GIF without going through the full flow:
+
+```bash
+./scripts/record.sh gif [fps] [width]
+# defaults: 15fps, 800px wide
+```
+
+Uses the two-pass palette method. Always use this over single-pass — the
+quality difference is significant and file sizes are smaller.
+
+---
+
+## /screen-record crop
+
+Crop the last recording to the bounds of the frontmost window. Uses
+AppleScript to detect position/size, then ffmpeg to crop:
+
+```bash
+./scripts/record.sh crop
+```
+
+This is Method 1 for window capture: record fullscreen first, then crop
+after the fact. Useful when you forgot to use pick mode.
+
+---
+
+## /screen-record annotate \<text\>
+
+Print a styled ANSI title card. Useful for labeling demo sections that
+will appear in the recording.
+
+```bash
+./scripts/record.sh annotate "My Demo Title"
+```
+
+Output:
+
+```text
+╔════════════════════╗
+║  My Demo Title     ║
+╚════════════════════╝
+```
+
+---
+
+## /screen-record status
+
+Check whether a recording is currently active:
+
+```bash
+./scripts/record.sh status
 ```
 
 ---
 
 ## macOS-Specific Notes
 
-### Screen Recording Permissions
+### avfoundation device index
 
-On macOS 10.15+, screen recording requires explicit privacy permission:
-
-1. System Settings > Privacy & Security > Screen Recording
-2. Add Terminal (or iTerm2, Warp, etc.) to the allowed list
-3. If `screencapture -v` produces a blank/black file, permissions are the
-   cause — the file is created but no frames are captured
-
-Test permission status before recording:
+The screen capture device index varies by machine. Find it:
 
 ```bash
-# Returns non-zero if screen recording is blocked
-screencapture -x /tmp/test-perm.png && echo "Permission OK" || echo "Permission denied"
-rm -f /tmp/test-perm.png
+ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i "capture screen"
 ```
 
-### ffmpeg avfoundation Device Index
+The script auto-detects this index at recording time. If auto-detection
+fails, it defaults to `5` (common on Apple Silicon Macs).
 
-Device indices vary by machine. List available devices:
+### Retina displays
 
-```bash
-ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -E '^\[AVFoundation'
-```
+macOS reports window coordinates in logical pixels (points). avfoundation
+captures at physical pixels (2x on Retina). ffmpeg handles the scaling
+automatically when using the avfoundation input device — the crop
+coordinates passed from AppleScript will work correctly.
 
-Typical output:
-- `[0]` = Built-in display
-- `[1]` = External display (if connected)
-- Audio: `[0]` = Built-in microphone, `[1]` = Built-in output
+### Permissions summary
 
-For screen-only with no audio: `-i "0:none"` or `-i "1:none"` for the
-second display.
-
-### QuickTime AppleScript (interactive fallback)
-
-```applescript
-tell application "QuickTime Player"
-    set newRecording to new screen recording
-    start newRecording
-end tell
-```
-
-Stop via:
-
-```applescript
-tell application "QuickTime Player"
-    stop document 1
-    save document 1 in POSIX file "/Users/you/recording.mov"
-end tell
-```
-
-This approach is interactive and not recommended for automated demos.
+| Permission | Required for | Where to grant |
+| --- | --- | --- |
+| Screen Recording | All video capture | System Settings > Privacy & Security > Screen Recording |
+| Accessibility | Window picker (AppleScript) | System Settings > Privacy & Security > Accessibility |
 
 ---
 
 ## Linux-Specific Notes
 
-### X11 Display
-
-For `ffmpeg -f x11grab`, the display must be set. In most desktop environments
-`:0.0` is correct. For remote sessions via VNC or Xvfb, use the virtual
-display number (e.g., `:1.0`).
-
-Check active display:
+### X11 (ffmpeg x11grab)
 
 ```bash
+# Check display
 echo $DISPLAY
-xdpyinfo | grep dimensions
-```
 
-Capture a specific region (useful for focused demos):
+# Full screen
+ffmpeg -f x11grab -r 30 -s 1920x1080 -i :0.0 output.mp4 &
 
-```bash
-# Capture 1280x720 starting at position (100, 100)
-ffmpeg -f x11grab -r 30 -s 1280x720 -i :0.0+100,100 output.mp4
+# Region (requires slop)
+GEOM=$(slop -f "%wx%h+%x,%y")
+SIZE=$(echo "$GEOM" | cut -d'+' -f1)
+OFFSET=$(echo "$GEOM" | cut -d'+' -f2)
+ffmpeg -f x11grab -r 30 -s "$SIZE" -i ":0.0+$OFFSET" output.mp4 &
 ```
 
 ### Wayland (wf-recorder)
 
-Wayland compositors do not support `x11grab`. Use `wf-recorder`:
-
 ```bash
-# Install
-sudo apt install wf-recorder   # Debian/Ubuntu
-sudo pacman -S wf-recorder     # Arch
-
-# Record
 wf-recorder -f output.mp4 &
-
-# Stop
-killall -SIGINT wf-recorder
-```
-
-For partial screen capture on Wayland, use `-g` with geometry:
-
-```bash
-wf-recorder -g "100,100 1280x720" -f output.mp4 &
-```
-
-### Headless / CI Environments
-
-For headless recording (CI pipelines, servers), use Xvfb:
-
-```bash
-Xvfb :99 -screen 0 1920x1080x24 &
-export DISPLAY=:99
-ffmpeg -f x11grab -r 30 -s 1920x1080 -i :99.0 output.mp4 &
+killall -SIGINT wf-recorder   # to stop
 ```
 
 ---
 
 ## GIF Quality Reference
 
-### Size vs Quality Trade-offs
+| Use case | FPS | Width | Expected size |
+| --- | --- | --- | --- |
+| README preview / badge | 10 | 600 | 2–5 MB |
+| Tutorial clip (30s) | 15 | 800 | 5–12 MB |
+| Full demo (60s) | 15 | 1024 | 12–25 MB |
 
-| Use Case | FPS | Width | Expected Size |
-|----------|-----|-------|---------------|
-| README badge/preview | 10 | 600 | 2-5 MB |
-| Tutorial clip (30s) | 15 | 800 | 5-12 MB |
-| Full demo (60s) | 15 | 1024 | 12-25 MB |
-| High quality archive | 24 | 1280 | 25-50 MB |
-
-### Reducing File Size
+Post-process with gifsicle for additional size reduction:
 
 ```bash
-# Reduce colors (256 is max, lower = smaller)
-ffmpeg -i input.mov \
-    -vf "fps=10,scale=600:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse" \
-    output.gif
-
-# Trim before converting (start at 5s, capture 20s)
-ffmpeg -ss 5 -t 20 -i input.mov \
-    -vf "fps=15,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
-    output.gif
-```
-
-### gifsicle Post-Processing
-
-```bash
-# Install: brew install gifsicle  OR  sudo apt install gifsicle
-# Optimize existing GIF
 gifsicle -O3 --lossy=80 -o optimized.gif input.gif
 ```
 
 ---
 
-## Demo Automation Workflow
-
-For structured plugin demos, the recommended pattern is:
-
-```
-start recording
-  → annotate "Plugin Name — Command"
-  → sleep 1 (annotation renders)
-  → run command / show output
-  → sleep 2-3 (viewer can read)
-  → annotate "Result"
-  → sleep 2
-stop recording
-convert to GIF
-```
-
-The `scripts/demo-all.sh` script implements this for all 13 Memoriant plugins.
-Each plugin gets its own GIF written to `demos/<plugin-name>-demo.gif`.
-
----
-
-## Troubleshooting
-
-| Problem | Cause | Fix |
-|---------|-------|-----|
-| Black/blank recording (macOS) | Screen Recording permission not granted | System Settings > Privacy > Screen Recording |
-| `ffmpeg: command not found` | ffmpeg not installed | `brew install ffmpeg` or `sudo apt install ffmpeg` |
-| x11grab: cannot open display | DISPLAY not set or X11 not running | `export DISPLAY=:0` or start Xvfb |
-| wf-recorder: failed to open DRM device | Wayland compositor not detected | Ensure running under Wayland, not XWayland |
-| File not found after stop | Process killed before finalizing | Use `kill -INT` not `kill -9`; wait 1s after stop |
-| GIF is huge | Using single-pass conversion | Use two-pass palette method (see gif command) |
-| screencapture exits immediately | Missing `-v` flag (video mode) | Ensure `-v` is present: `screencapture -v file.mov` |
-| PID file stale after crash | Previous recording crashed | `rm ~/.memoriant/recordings/.recording.pid` |
-
----
-
 ## File Layout
 
-```
+```text
 ~/.memoriant/
 └── recordings/
     ├── .recording.pid          # PID of active recording process
     ├── .last_recording         # Path stub of most recent recording
-    ├── recording-20250326-143022.mov
-    ├── recording-20250326-143022.gif
+    ├── .save_dir               # User-chosen destination directory
+    ├── recording-20260326-114228.mov
+    ├── recording-20260326-114228.gif
     └── ...
 ```
 
-Demo GIFs from `demo-all.sh` are written to the local `demos/` directory
-within the repo, not the recordings directory.
+Final output files are copied from `recordings/` to the directory the user
+chose in Step 4. The working files in `recordings/` remain as a cache.
+
+---
+
+## Troubleshooting Reference
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| Black/blank recording (macOS) | Screen Recording permission not granted | System Settings > Privacy > Screen Recording |
+| `ffmpeg: command not found` | ffmpeg not installed | `brew install ffmpeg` or `sudo apt install ffmpeg` |
+| Window picker shows nothing | Accessibility permission not granted | System Settings > Privacy > Accessibility |
+| x11grab: cannot open display | DISPLAY not set | `export DISPLAY=:0` |
+| File not found after stop | Process still finalizing | Wait 2s; check `~/.memoriant/recordings/` |
+| GIF is huge | Single-pass conversion | Use two-pass palette method (default in this skill) |
+| PID file stale after crash | Previous recording crashed | `rm ~/.memoriant/recordings/.recording.pid` |
 
 ---
 
 ## Version History
 
 | Version | Changes |
-|---------|---------|
+| --- | --- |
+| 2.0.0 | Complete rewrite: six-step guided flow, preflight check, window table, save location prompt, format selection after stop. |
 | 1.0.0 | Initial release — start/stop/gif/annotate/demo/status. macOS + Linux. |
