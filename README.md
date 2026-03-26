@@ -62,6 +62,27 @@ This is a Claude Code **skill** — a set of detailed instructions (in `skills/s
 
 ---
 
+## Screenshots — Real Usage in Claude Code
+
+Here's the actual skill running inside Claude Code (VS Code):
+
+### Step 1: Preflight Check
+Claude automatically checks your system before recording — macOS detected, ffmpeg installed, accessibility permission granted. If anything is missing, it tells you exactly how to fix it.
+
+![Step 1 — Preflight Check](docs/screenshots/step1-preflight.png)
+
+### Step 2: Capture Mode Selection
+Two options: full screen or pick a specific window. "Pick a window" is recommended for clean demo recordings.
+
+![Step 2 — Mode Selection](docs/screenshots/step2-mode-select.png)
+
+### Step 3: Window Picker
+Claude lists every open window on your machine in a table — app name, window title, and size. Pick a number and recording starts immediately on just that window.
+
+![Step 3 — Window Picker](docs/screenshots/step3-window-picker.png)
+
+---
+
 ## The Interactive Flow
 
 When you say "start a screen recording," Claude runs through all six steps:
