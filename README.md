@@ -13,61 +13,20 @@ Part of the [Memoriant Plugin Marketplace](https://github.com/NathanMaine/memori
 
 ## Install
 
-```bash
-/install NathanMaine/memoriant-screen-recorder-skill
-```
-
----
-
-## Installation Methods
-
-### Method 1: Clone to plugins directory (recommended)
-
-```bash
-git clone https://github.com/NathanMaine/memoriant-screen-recorder-skill.git \
-    ~/.claude/plugins/memoriant-screen-recorder-skill
-chmod +x ~/.claude/plugins/memoriant-screen-recorder-skill/scripts/*.sh
-```
-
-Then in Claude Code: `/reload-plugins`
-
-### Method 2: Direct script usage (works immediately, any session)
-
-Even without plugin registration, you can use the recording script directly. Tell Claude:
+In Claude Code, add the Memoriant Marketplace and install:
 
 ```
-run ~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh setup
+/plugin marketplace add NathanMaine/memoriant-marketplace
+/plugin install memoriant-screen-recorder@memoriant-marketplace
 ```
 
-Or use the script manually:
+Then reload:
 
-```bash
-# Check everything is ready
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh setup
-
-# Start recording (interactive)
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start
-
-# Or specify mode directly
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start pick
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start fullscreen
-
-# Stop
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh stop
-
-# Convert to GIF
-~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh gif
+```
+/reload-plugins
 ```
 
-### Method 3: Alias for quick access
-
-Add to your `~/.zshrc` or `~/.bashrc`:
-
-```bash
-alias rec="~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh"
-```
-
-Then: `rec start pick`, `rec stop`, `rec gif`
+That's it. Ask Claude to "record my screen" and it works.
 
 ---
 
