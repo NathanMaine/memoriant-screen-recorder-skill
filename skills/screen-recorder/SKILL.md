@@ -28,6 +28,25 @@ This skill teaches Claude Code to manage screen recording sessions through a
 guided six-step interactive flow. Recordings are saved to a working directory
 (`~/.memoriant/recordings/` by default) and then copied to a user-chosen
 destination. A PID file tracks the active recording process so stop/status
+
+## IMPORTANT: How to Present Windows
+
+When the user asks to record a window, ALWAYS:
+1. Run the AppleScript to get all visible windows
+2. Present them as a **markdown table** — never as a raw numbered list
+3. Format: `| # | App | Window | Size |` with clean, truncated titles
+4. Ask "Which number?" and start recording immediately after they answer
+5. Do NOT ask extra questions — list windows, get number, record
+
+Example of the correct format:
+
+| # | App | Window | Size |
+|---|-----|--------|------|
+| 1 | Terminal | zsh | 597x385 |
+| 2 | Google Chrome | New Tab | 1649x1866 |
+| 3 | Code | patent submit skill | 1581x1431 |
+
+Which number?
 work reliably across commands.
 
 The helper script at `scripts/record.sh` implements all commands. Claude
