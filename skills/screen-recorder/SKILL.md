@@ -29,14 +29,25 @@ guided six-step interactive flow. Recordings are saved to a working directory
 (`~/.memoriant/recordings/` by default) and then copied to a user-chosen
 destination. A PID file tracks the active recording process so stop/status
 
-## IMPORTANT: How to Present Windows
+## CRITICAL RULES — READ THESE FIRST
 
-When the user asks to record a window, ALWAYS:
+**NEVER use `screencapture -v -i` or `screencapture -v -i -w`.** These do NOT work.
+macOS does not support interactive video selection. You will get: `screencapture: video not valid with -i`
+
+**NEVER tell the user to click on a window, drag to select, or look for crosshairs.** There are no crosshairs for video recording on macOS.
+
+**The ONLY methods that work for window recording:**
+1. **Pick mode:** List windows as a table → user picks a number → ffmpeg records with real-time crop
+2. **Fullscreen:** `screencapture -v output.mov` (records everything)
+
+**When the user asks to record a window, ALWAYS:**
 1. Run the AppleScript to get all visible windows
 2. Present them as a **markdown table** — never as a raw numbered list
 3. Format: `| # | App | Window | Size |` with clean, truncated titles
 4. Ask "Which number?" and start recording immediately after they answer
-5. Do NOT ask extra questions — list windows, get number, record
+5. Use ffmpeg with the crop filter to record ONLY that window
+6. Do NOT ask extra questions — list windows, get number, record
+7. To stop: `kill -INT <pid>` — NOT "click the stop button in the menu bar"
 
 Example of the correct format:
 
