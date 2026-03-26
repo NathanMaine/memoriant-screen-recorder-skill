@@ -14,14 +14,24 @@ destination. A PID file tracks the active recording process so stop/status
 
 ## CRITICAL RULES — READ THESE FIRST
 
+**NEVER use `screencapture -x` to test screen recording permission.** It fails due to macOS sandbox
+restrictions on file writing, NOT because of missing permissions. Use ffmpeg instead:
+```bash
+SCREEN_DEV=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i "capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/')
+ffmpeg -y -f avfoundation -framerate 1 -i "${SCREEN_DEV}:none" -t 0.5 -c:v libx264 -preset ultrafast ~/.memoriant/recordings/.screen-test.mov 2>/dev/null
+```
+If that produces a non-empty file, permission is granted. Delete the test file after.
+
 **NEVER use `screencapture -v -i` or `screencapture -v -i -w`.** These do NOT work.
 macOS does not support interactive video selection. You will get: `screencapture: video not valid with -i`
 
 **NEVER tell the user to click on a window, drag to select, or look for crosshairs.** There are no crosshairs for video recording on macOS.
 
+**NEVER use `screencapture -x` for anything.** It has sandbox write issues in Claude Code. Always use ffmpeg for both testing AND recording.
+
 **The ONLY methods that work for window recording:**
 1. **Pick mode:** List windows as a table → user picks a number → ffmpeg records with real-time crop
-2. **Fullscreen:** `screencapture -v output.mov` (records everything)
+2. **Fullscreen:** `screencapture -v output.mov` (records everything, but prefer ffmpeg)
 
 **When the user asks to record a window, ALWAYS:**
 1. Run the AppleScript to get all visible windows
