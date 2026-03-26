@@ -51,17 +51,17 @@ start_recording() {
         echo "How would you like to record?"
         echo ""
         echo "  1) Full screen — captures entire display"
-        echo "  2) Select region — drag to select an area (recommended for demos)"
-        echo "  3) Click window — click on the window to capture"
-        echo "  4) Terminal only — auto-detect and capture the terminal window"
+        echo "  2) Pick a window — choose from a list of open windows (recommended)"
+        echo "  3) Frontmost window — auto-detect whatever is in front"
+        echo "  4) Record fullscreen, crop later"
         echo ""
         read -r -p "Which mode? (1/2/3/4, default: 2): " mode_choice
         case "${mode_choice:-2}" in
             1) mode="fullscreen" ;;
-            2) mode="region" ;;
+            2) mode="pick" ;;
             3) mode="window" ;;
-            4) mode="terminal" ;;
-            *) mode="region" ;;
+            4) mode="region" ;;
+            *) mode="pick" ;;
         esac
     fi
 
@@ -73,6 +73,86 @@ start_recording() {
             # "screencapture: video not valid with -i"
             # For window/region capture, we use Method 2: ffmpeg with real-time crop.
             case "$mode" in
+                pick)
+                    # List all visible windows and let user choose
+                    if ! command -v ffmpeg &>/dev/null; then
+                        echo "Window recording requires ffmpeg. Install: brew install ffmpeg"
+                        echo "Falling back to fullscreen..."
+                        screencapture -v "$filename.mov" &
+                    else
+                        echo ""
+                        echo "Open windows:"
+                        echo ""
+
+                        # Build window list via AppleScript
+                        local window_data
+                        window_data=$(osascript -e '
+                            tell application "System Events"
+                                set output to ""
+                                repeat with proc in (every application process whose visible is true)
+                                    try
+                                        repeat with win in (every window of proc)
+                                            set winName to name of win
+                                            set appName to name of proc
+                                            set {x, y} to position of win
+                                            set {w, h} to size of win
+                                            set output to output & appName & "|" & winName & "|" & (x as text) & "|" & (y as text) & "|" & (w as text) & "|" & (h as text) & linefeed
+                                        end repeat
+                                    end try
+                                end repeat
+                                return output
+                            end tell
+                        ' 2>/dev/null)
+
+                        # Display numbered list
+                        local i=1
+                        local -a apps positions sizes
+                        while IFS='|' read -r app_name win_name wx wy ww wh; do
+                            [[ -z "$app_name" ]] && continue
+                            # Clean whitespace
+                            wx=$(echo "$wx" | tr -d ' ')
+                            wy=$(echo "$wy" | tr -d ' ')
+                            ww=$(echo "$ww" | tr -d ' ')
+                            wh=$(echo "$wh" | tr -d ' ')
+                            # Truncate long window titles
+                            local display_title="$win_name"
+                            if [[ ${#display_title} -gt 60 ]]; then
+                                display_title="${display_title:0:57}..."
+                            fi
+                            printf "  %2d) %-15s %s (%sx%s)\n" "$i" "$app_name" "$display_title" "$ww" "$wh"
+                            apps[$i]="$app_name"
+                            positions[$i]="${wx},${wy}"
+                            sizes[$i]="${ww},${wh}"
+                            i=$((i + 1))
+                        done <<< "$window_data"
+
+                        local total=$((i - 1))
+                        echo ""
+                        read -r -p "Which window? (1-${total}): " pick_num
+
+                        if [[ -z "$pick_num" || "$pick_num" -lt 1 || "$pick_num" -gt "$total" ]] 2>/dev/null; then
+                            echo "Invalid choice. Falling back to fullscreen."
+                            screencapture -v "$filename.mov" &
+                        else
+                            local pos="${positions[$pick_num]}"
+                            local sz="${sizes[$pick_num]}"
+                            local x y w h
+                            IFS=',' read -r x y <<< "$pos"
+                            IFS=',' read -r w h <<< "$sz"
+                            # Ensure even dimensions
+                            w=$(( (w / 2) * 2 ))
+                            h=$(( (h / 2) * 2 ))
+                            local screen_device
+                            screen_device=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i "capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/' || echo "5")
+                            echo ""
+                            echo "Recording: ${apps[$pick_num]} — ${w}x${h} at ${x},${y}"
+                            ffmpeg -y -f avfoundation -framerate 30 -i "${screen_device}:none" \
+                                -vf "crop=${w}:${h}:${x}:${y}" \
+                                -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                                "$filename.mov" &
+                        fi
+                    fi
+                    ;;
                 fullscreen)
                     # Method 1 (simple): screencapture records the full screen
                     screencapture -v "$filename.mov" &
@@ -419,6 +499,7 @@ case "${1:-help}" in
         echo ""
         echo "Modes:"
         echo "  fullscreen             Record entire display (screencapture)"
+        echo "  pick                   List all open windows, choose one to record (recommended)"
         echo "  window                 Record frontmost window only (ffmpeg + AppleScript)"
         echo "  terminal               Same as window — auto-detects terminal"
         echo "  region                 Choose: frontmost window OR fullscreen + crop after"
