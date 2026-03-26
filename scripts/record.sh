@@ -96,7 +96,7 @@ setup_check() {
 
     # Screen Recording permission (macOS)
     if [[ "$os" == "macos" ]]; then
-        local test_img="/tmp/.memoriant-screen-test.png"
+        local test_img="$RECORD_DIR/.screen-test.png"
         if screencapture -x "$test_img" 2>/dev/null && [[ -s "$test_img" ]]; then
             echo "  ✓ Screen Recording permission granted"
         else
@@ -258,7 +258,7 @@ start_recording() {
 
     # Screen recording permission (macOS)
     if [[ "$os" == "macos" ]]; then
-        local test_img="/tmp/.memoriant-screen-test.png"
+        local test_img="$RECORD_DIR/.screen-test.png"
         if screencapture -x "$test_img" 2>/dev/null && [[ -s "$test_img" ]]; then
             echo "  ✓ Screen Recording permission granted"
         else
