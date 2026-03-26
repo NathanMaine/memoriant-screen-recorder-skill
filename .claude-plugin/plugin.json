@@ -1,0 +1,12 @@
+{
+  "name": "memoriant-screen-recorder",
+  "version": "1.0.0",
+  "description": "Screen recording for Claude Code — record demos, tutorials, and bug reports. Start/stop recording, add title cards, export as GIF or MP4. Works on macOS and Linux.",
+  "author": {"name": "Nathan Maine", "url": "https://github.com/NathanMaine"},
+  "homepage": "https://github.com/NathanMaine/memoriant-marketplace",
+  "repository": "https://github.com/NathanMaine/memoriant-screen-recorder-skill",
+  "license": "MIT",
+  "keywords": ["screen-recording", "demo", "tutorial", "gif", "video", "documentation", "screencast"],
+  "skills": "./skills/",
+  "agents": "./agents/"
+}
