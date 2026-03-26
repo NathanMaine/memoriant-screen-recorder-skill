@@ -19,6 +19,74 @@ Part of the [Memoriant Plugin Marketplace](https://github.com/NathanMaine/memori
 
 ---
 
+## Installation Methods
+
+### Method 1: Clone to plugins directory (recommended)
+
+```bash
+git clone https://github.com/NathanMaine/memoriant-screen-recorder-skill.git \
+    ~/.claude/plugins/memoriant-screen-recorder-skill
+chmod +x ~/.claude/plugins/memoriant-screen-recorder-skill/scripts/*.sh
+```
+
+Then in Claude Code: `/reload-plugins`
+
+### Method 2: Direct script usage (works immediately, any session)
+
+Even without plugin registration, you can use the recording script directly. Tell Claude:
+
+```
+run ~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh setup
+```
+
+Or use the script manually:
+
+```bash
+# Check everything is ready
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh setup
+
+# Start recording (interactive)
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start
+
+# Or specify mode directly
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start pick
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh start fullscreen
+
+# Stop
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh stop
+
+# Convert to GIF
+~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh gif
+```
+
+### Method 3: Alias for quick access
+
+Add to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+alias rec="~/.claude/plugins/memoriant-screen-recorder-skill/scripts/record.sh"
+```
+
+Then: `rec start pick`, `rec stop`, `rec gif`
+
+---
+
+## Important: Video Only (No Audio)
+
+This skill records **video only** — no audio capture. This is by design:
+- `screencapture -v` on macOS records video without audio
+- `ffmpeg` with avfoundation captures the screen device only, not audio devices
+- Terminal demos don't typically need audio — the visual output tells the story
+
+**If you need audio recording**, use:
+- **OBS Studio** — full screen + audio recording (`brew install --cask obs`)
+- **QuickTime Player** — Cmd+Shift+5, select microphone in options
+- **macOS Screen Recording** — built into macOS Sequoia, includes audio toggle
+
+Audio support is on the [roadmap](ROADMAP.md) for v3.0.
+
+---
+
 ## How It Actually Works
 
 This is a Claude Code **skill** — a set of detailed instructions (in `skills/screen-recorder/SKILL.md`) that Claude reads and follows. There is no background daemon, no server, no runtime.
@@ -148,6 +216,40 @@ Claude: [prints:]
 
   Title card is visible in the recording. Run your demo now.
 ```
+
+---
+
+## Use Cases
+
+### 1. Plugin Demo GIFs for GitHub READMEs
+Record your Claude Code plugin in action, convert to GIF, embed in your README. This is how every plugin in the Memoriant Marketplace gets its demo.
+
+### 2. Bug Reproduction Videos
+Record the exact steps that trigger a bug. Attach the recording to a GitHub issue instead of writing "it doesn't work." The video shows exactly what happened.
+
+### 3. Code Review Walkthroughs
+Record yourself navigating through a PR, highlighting the changes and explaining your reasoning. Share the recording in the PR comments.
+
+### 4. Tutorial / How-To Creation
+Record a step-by-step tutorial showing how to use a tool, framework, or library. Convert to GIF for documentation or keep as video for longer walkthroughs.
+
+### 5. Before/After Comparisons
+Record the UI before a change, make the change, record again. Put both GIFs side by side in a PR to show the visual difference.
+
+### 6. Onboarding New Team Members
+Record your development workflow — how you run tests, deploy, debug. New team members watch the recording instead of reading a 20-page onboarding doc.
+
+### 7. Client Demos and Progress Updates
+Record your application running, showing new features or fixes. Send the video or GIF to clients who don't want to pull and run the code themselves.
+
+### 8. Performance Testing Evidence
+Record your application under load — show the UI responsiveness, network tab, metrics dashboard. Attach to performance reports as visual evidence.
+
+### 9. Automated CI Screenshots
+Use the demo-all.sh script to generate recordings of each plugin automatically. Run it on every release to keep demo GIFs up to date.
+
+### 10. Conference Talk Preparation
+Record dry runs of your terminal demos before a conference talk. Review the recordings to check pacing, identify where you need to slow down, and ensure commands work smoothly.
 
 ---
 
@@ -405,6 +507,19 @@ ffmpeg -i recording.mov -t 30 -c copy trimmed.mov
 
 # Or ask Claude: "trim my last recording to the first 30 seconds"
 ```
+
+---
+
+## Known Limitations
+
+| Limitation | Reason | Workaround |
+|-----------|--------|------------|
+| **No audio recording** | screencapture -v and ffmpeg avfoundation screen capture don't include audio by default | Use OBS or QuickTime for audio |
+| **No interactive region select from Claude Code** | macOS screencapture -v doesn't support -i (interactive). Claude Code's shell lacks GUI event loop | Use pick mode (lists windows) or fullscreen + crop |
+| **Single recording at a time** | One PID file tracks one session | Multi-session support planned for v2.1 |
+| **Window must stay visible** | ffmpeg crops from the full screen capture — if a window is hidden or minimized, it won't appear | Keep the target window visible during recording |
+| **Retina displays may double coordinates** | macOS reports logical pixels but ffmpeg may capture at physical pixels | If crop is offset, try doubling x/y/w/h values |
+| **Large GIFs** | Long recordings at high resolution produce multi-MB GIFs | Lower fps (10) and width (600) for smaller files |
 
 ---
 
