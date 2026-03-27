@@ -496,6 +496,8 @@ ffmpeg -i recording.mov -t 30 -c copy trimmed.mov
 |-----------|--------|------------|
 | **No audio recording** | screencapture -v and ffmpeg avfoundation screen capture don't include audio by default | Use OBS or QuickTime for audio |
 | **No interactive region select from Claude Code** | macOS screencapture -v doesn't support -i (interactive). Claude Code's shell lacks GUI event loop | Use pick mode (lists windows) or fullscreen + crop |
+| **`screencapture -x` fails in Claude Code** | macOS sandbox restricts `screencapture` from writing files when called from Claude Code's shell. This is NOT a permission issue — it's a sandbox restriction | Always use ffmpeg for both permission testing and recording. Never use `screencapture -x` |
+| **Preflight may show false "permission NOT granted"** | If the preflight uses `screencapture -x` to test, it will always fail in Claude Code due to the sandbox, even when Screen Recording permission is actually granted | The latest version uses ffmpeg for the permission test. Update the plugin if you see this |
 | **Single recording at a time** | One PID file tracks one session | Multi-session support planned for v2.1 |
 | **Window must stay visible** | ffmpeg crops from the full screen capture — if a window is hidden or minimized, it won't appear | Keep the target window visible during recording |
 | **Retina displays may double coordinates** | macOS reports logical pixels but ffmpeg may capture at physical pixels | If crop is offset, try doubling x/y/w/h values |
@@ -507,7 +509,8 @@ ffmpeg -i recording.mov -t 30 -c copy trimmed.mov
 
 | Problem | Fix |
 | --- | --- |
-| Black / blank recording on macOS | Screen Recording permission not granted. System Settings > Privacy & Security > Screen Recording. Add your terminal. Restart it. |
+| Black / blank recording on macOS | Screen Recording permission not granted. System Settings > Privacy & Security > Screen Recording. Add your terminal app (Terminal, iTerm2, VS Code, Cursor). Restart the app after granting. |
+| Preflight says "Screen Recording NOT granted" but recording works | The old preflight used `screencapture -x` which fails due to macOS sandbox restrictions, not missing permissions. Update the plugin — the latest version tests with ffmpeg instead. |
 | "No screen recorder found" | Install ffmpeg: `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) |
 | Window picker shows no windows | Accessibility permission not granted. System Settings > Privacy & Security > Accessibility. |
 | Window picker shows wrong size | macOS reports logical pixels. On a Retina display, the actual pixel count is 2x. ffmpeg handles this automatically via the avfoundation device. |
